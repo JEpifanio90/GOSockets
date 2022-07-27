@@ -1,9 +1,9 @@
 package main
 
 import (
+	"GOSockets/internal/handlers"
 	"github.com/bmizerany/pat"
 	"net/http"
-	"ws/internal/handlers"
 )
 
 // routes defines the application routes

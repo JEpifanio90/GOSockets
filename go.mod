@@ -1,4 +1,4 @@
-module ws
+module GOSockets
 
 go 1.15
 
