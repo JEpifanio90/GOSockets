@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	"log"
 	"net/http"
+	"sort"
 )
 
 var WSChan = make(chan WSPayload)
@@ -38,9 +39,10 @@ type WebSocketConnection struct {
 }
 
 type WSJsonResponse struct {
-	Action      string `json:"action"`
-	Message     string `json:"message"`
-	MessageType string `json:"messageType"`
+	Action      string   `json:"action"`
+	Message     string   `json:"message"`
+	MessageType string   `json:"messageType"`
+	Users       []string `json:"users"`
 }
 
 type WSPayload struct {
@@ -100,9 +102,28 @@ func ListenToChannel() {
 	for {
 		event := <-WSChan
 
-		res.Action = "Got Here"
-		res.Message = fmt.Sprintf("Some Message and action was %s", event.Action)
-		BroadcastAll(res)
+		switch event.Action {
+		case "username":
+			clients[event.Conn] = event.User
+			users := getUserList()
+
+			res.Action = "users_list"
+			res.Users = users
+			BroadcastAll(res)
+
+		case "left":
+			// handle the situation where a user leaves the page
+			res.Action = "list_users"
+			delete(clients, event.Conn)
+			users := getUserList()
+			res.Users = users
+			BroadcastAll(res)
+
+		case "broadcast":
+			res.Action = "broadcast"
+			res.Message = fmt.Sprintf("<strong>%s</strong>: %s", event.User, event.Message)
+			BroadcastAll(res)
+		}
 	}
 }
 
@@ -116,6 +137,18 @@ func BroadcastAll(response WSJsonResponse) {
 			delete(clients, client)
 		}
 	}
+}
+
+func getUserList() []string {
+	var users []string
+	for _, name := range clients {
+		if name != "" {
+			users = append(users, name)
+		}
+	}
+
+	sort.Strings(users)
+	return users
 }
 
 // renderPage renders a jet template
