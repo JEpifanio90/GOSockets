@@ -116,10 +116,9 @@
             console.log("Action is", data.action);
 
             switch (data.action) {
-                case "users_list":
+                case "list_users":
                     let ul = document.getElementById("online_users");
                     while (ul.firstChild) ul.removeChild(ul.firstChild);
-                    console.warn(data);
                     if (data && data.users !== null && data.users.length > 0) {
                         data.users.forEach(function (item) {
                             let li = document.createElement("li");

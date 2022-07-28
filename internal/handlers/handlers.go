@@ -13,17 +13,17 @@ var WSChan = make(chan WSPayload)
 
 var clients = make(map[WebSocketConnection]string)
 
+// views is the jet view set
 var views = jet.NewSet(
 	jet.NewOSFileSystemLoader("./html"),
 	jet.InDevelopmentMode(),
 )
 
+// upgradeConnection is the websocket upgrader from gorilla/websockets
 var upgradeConnection = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
+	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 // Home renders the home page
@@ -34,51 +34,54 @@ func Home(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// WebSocketConnection is a wrapper for our websocket connection, in case
+// we ever need to put more data into the struct
 type WebSocketConnection struct {
 	*websocket.Conn
 }
 
+// WSJsonResponse defines the response sent back from websocket
 type WSJsonResponse struct {
 	Action      string   `json:"action"`
 	Message     string   `json:"message"`
-	MessageType string   `json:"messageType"`
+	MessageType string   `json:"message_type"`
 	Users       []string `json:"users"`
 }
 
+// WSPayload defines the websocket request from the client
 type WSPayload struct {
-	Action  string              `json:"action"`
-	User    string              `json:"user"`
-	Message string              `json:"message"`
-	Conn    WebSocketConnection `json:"-"`
+	Action   string              `json:"action"`
+	Username string              `json:"username"`
+	Message  string              `json:"message"`
+	Conn     WebSocketConnection `json:"-"`
 }
 
+// WSEndpoint upgrades connection to websocket
 func WSEndpoint(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgradeConnection.Upgrade(w, r, nil)
-
 	if err != nil {
 		log.Println(err)
 	}
 
 	log.Println("Client connected to endpoint")
-	var response WSJsonResponse
 
+	var response WSJsonResponse
 	response.Message = `<em><small>Connected to server</small></em>`
 
 	conn := WebSocketConnection{Conn: ws}
-
 	clients[conn] = ""
 
 	err = ws.WriteJSON(response)
-
 	if err != nil {
 		log.Println(err)
 	}
 
-	go ListWebSocket(&conn)
+	go ListenWS(&conn)
 }
 
-func ListWebSocket(conn *WebSocketConnection) {
-	// Recover from a panic!
+// ListenWS is a goroutine that handles communication between server and client, and
+// feeds data into the WSChan
+func ListenWS(conn *WebSocketConnection) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Println("Error", fmt.Sprintf("%v", r))
@@ -89,7 +92,6 @@ func ListWebSocket(conn *WebSocketConnection) {
 
 	for {
 		err := conn.ReadJSON(&payload)
-
 		if err == nil {
 			payload.Conn = *conn
 			WSChan <- payload
@@ -97,48 +99,40 @@ func ListWebSocket(conn *WebSocketConnection) {
 	}
 }
 
+// ListenToChannel is a goroutine that waits for an entry on the WSChan, and handles it according to the
+// specified action
 func ListenToChannel() {
-	var res WSJsonResponse
+	var response WSJsonResponse
+
 	for {
 		event := <-WSChan
 
 		switch event.Action {
 		case "username":
-			clients[event.Conn] = event.User
+			// get a list of all users and send it back via broadcast
+			clients[event.Conn] = event.Username
 			users := getUserList()
-
-			res.Action = "users_list"
-			res.Users = users
-			BroadcastAll(res)
+			response.Action = "list_users"
+			response.Users = users
+			broadcastAll(response)
 
 		case "left":
 			// handle the situation where a user leaves the page
-			res.Action = "list_users"
+			response.Action = "list_users"
 			delete(clients, event.Conn)
 			users := getUserList()
-			res.Users = users
-			BroadcastAll(res)
+			response.Users = users
+			broadcastAll(response)
 
 		case "broadcast":
-			res.Action = "broadcast"
-			res.Message = fmt.Sprintf("<strong>%s</strong>: %s", event.User, event.Message)
-			BroadcastAll(res)
+			response.Action = "broadcast"
+			response.Message = fmt.Sprintf("<strong>%s</strong>: %s", event.Username, event.Message)
+			broadcastAll(response)
 		}
 	}
 }
 
-func BroadcastAll(response WSJsonResponse) {
-	for client := range clients {
-		err := client.WriteJSON(response)
-
-		if err != nil {
-			log.Println("Websocket err")
-			_ = client.Close()
-			delete(clients, client)
-		}
-	}
-}
-
+// getUserList returns a slice of strings containing all usernames who are currently online
 func getUserList() []string {
 	var users []string
 	for _, name := range clients {
@@ -146,9 +140,22 @@ func getUserList() []string {
 			users = append(users, name)
 		}
 	}
-
 	sort.Strings(users)
 	return users
+}
+
+// broadcastAll sends ws response to all connected clients
+func broadcastAll(response WSJsonResponse) {
+	for client := range clients {
+		log.Println(response)
+		err := client.WriteJSON(response)
+		if err != nil {
+			// the user probably left the page, or their connection dropped
+			log.Println("websocket err")
+			_ = client.Close()
+			delete(clients, client)
+		}
+	}
 }
 
 // renderPage renders a jet template
