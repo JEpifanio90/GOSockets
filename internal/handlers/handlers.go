@@ -147,7 +147,6 @@ func getUserList() []string {
 // broadcastAll sends ws response to all connected clients
 func broadcastAll(response WSJsonResponse) {
 	for client := range clients {
-		log.Println(response)
 		err := client.WriteJSON(response)
 		if err != nil {
 			// the user probably left the page, or their connection dropped
